@@ -1,0 +1,1601 @@
+<!DOCTYPE html>
+<html lang="es" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Control de Presupuestos y Ventas Diarias (Cloud)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+        }
+    </script>
+    <!-- SheetJS para lectura de Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Chart.js para gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Tesseract.js para OCR local en navegador -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; }
+        input, select { font-size: 16px !important; } /* Evita zoom automático en iOS en inputs */
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 min-h-screen flex flex-col transition-colors duration-200">
+
+    <!-- Header -->
+    <header class="bg-slate-900 dark:bg-slate-900 text-white shadow-md sticky top-0 z-30 border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-2.5 min-w-0">
+                <div class="bg-blue-600 p-2 rounded-lg text-white shadow-sm flex-shrink-0">
+                    <i data-lucide="line-chart" class="w-5 h-5 sm:w-6 sm:h-6"></i>
+                </div>
+                <div class="min-w-0">
+                    <div class="flex items-center space-x-2">
+                        <h1 class="text-xs sm:text-base font-bold truncate leading-none">Gestión de Presupuestos</h1>
+                        <span id="cloudStatusBadge" class="bg-amber-500 text-slate-950 text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-1 flex-shrink-0">
+                            <span class="w-1.5 h-1.5 rounded-full bg-slate-950 animate-pulse"></span> Sinc...
+                        </span>
+                    </div>
+                    <p class="text-[10px] sm:text-xs text-slate-400 mt-0.5 truncate">BARC 2 - Cloud Edition</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-1.5 sm:space-x-3 flex-shrink-0">
+                <!-- Botón Modo Oscuro / Claro -->
+                <button onclick="toggleDarkMode()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-lg text-xs font-semibold flex items-center justify-center transition shadow-sm border border-slate-700" title="Cambiar Tema">
+                    <i id="themeIcon" data-lucide="moon" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Botón Escanear / Entrada Rápida Ticket -->
+                <button onclick="openScanModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 sm:px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow-sm">
+                    <i data-lucide="camera" class="w-4 h-4"></i>
+                    <span class="hidden sm:inline">Entrada Rápida / Ticket</span>
+                    <span class="sm:hidden">Ticket</span>
+                </button>
+
+                <!-- Botón Cargar Excel -->
+                <label class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-2.5 sm:px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow-sm">
+                    <i data-lucide="file-up" class="w-4 h-4"></i>
+                    <span class="hidden sm:inline">Cargar Excel</span>
+                    <input type="file" id="excelFileInput" accept=".xlsx, .xls, .csv" class="hidden">
+                </label>
+            </div>
+        </div>
+    </header>
+
+    <!-- Content -->
+    <main class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 flex-1 w-full space-y-4 sm:space-y-6">
+
+        <!-- Banner de Filtros y Selector de Mes -->
+        <div class="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row justify-between items-stretch md:items-center gap-3">
+            
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full md:w-auto">
+                <div class="flex items-center space-x-2">
+                    <div class="bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-400 p-2 rounded-lg">
+                        <i data-lucide="calendar" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                    </div>
+                    <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Período:</span>
+                </div>
+                <div class="grid grid-cols-2 sm:flex items-center gap-2 w-full sm:w-auto">
+                    <select id="monthPicker" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-lg p-2.5 font-bold focus:ring-blue-500 focus:border-blue-500 w-full sm:w-40">
+                        <!-- Populated dynamically -->
+                    </select>
+                    <select id="yearPicker" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-lg p-2.5 font-bold focus:ring-blue-500 focus:border-blue-500 w-full sm:w-28">
+                        <option value="2026">2026</option>
+                        <option value="2025">2025</option>
+                        <option value="2027">2027</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Selector de Familia activa en vista detalle -->
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
+                <label for="familySelector" class="text-xs font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap">Vista / Familia:</label>
+                <select id="familySelector" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-lg p-2.5 font-semibold focus:ring-blue-500 focus:border-blue-500 w-full md:w-72">
+                    <option value="TOTAL">Total Tienda (Todas Familias)</option>
+                    <option value="AGRUPADO_PINTURAS" class="font-bold text-blue-700 dark:text-blue-400">★ Pinturas y Decoración (Suma Familias)</option>
+                    <option value="HA">HA Pinturas</option>
+                    <option value="HB">HB Papel pintado</option>
+                    <option value="HC">HC Colas y pegamentos</option>
+                    <option value="HD">HD Decoración</option>
+                    <option value="HE">HE Pavimentos</option>
+                    <option value="HF">HF Cuadros</option>
+                    <option value="HH">HH Limpieza</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- RESTRUCTURED KPI SUMMARY CARDS -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+            
+            <!-- Card 1: Presupuesto Mes TOTAL TIENDA & Falta -->
+            <div class="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 uppercase">Total Tienda</span>
+                            <p class="text-xs font-medium text-slate-500 uppercase tracking-wider mt-1">Presupuesto Mes</p>
+                            <h3 id="kpiTotalBudgetMonth" class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white mt-0.5">€0</h3>
+                        </div>
+                        <div class="p-2 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-lg">
+                            <i data-lucide="store" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3.5 pt-2.5 border-t border-slate-100 dark:border-slate-800 text-xs space-y-1">
+                    <div class="flex justify-between text-slate-600 dark:text-slate-400">
+                        <span>Acumulado Real:</span>
+                        <strong id="kpiTotalRealMonth" class="text-slate-800 dark:text-slate-200">€0</strong>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">Falta cumplir:</span>
+                        <strong id="kpiTotalFaltaMonth" class="text-amber-700 dark:text-amber-400 font-bold">€0</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 2: Presupuesto Mes PINTURAS Y DECORACIÓN & Falta -->
+            <div class="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300 uppercase">Pinturas & Decoro</span>
+                            <p class="text-xs font-medium text-slate-500 uppercase tracking-wider mt-1">Presupuesto Mes</p>
+                            <h3 id="kpiPintBudgetMonth" class="text-xl sm:text-2xl font-bold text-indigo-950 dark:text-indigo-200 mt-0.5">€0</h3>
+                        </div>
+                        <div class="p-2 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                            <i data-lucide="palette" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3.5 pt-2.5 border-t border-slate-100 dark:border-slate-800 text-xs space-y-1">
+                    <div class="flex justify-between text-slate-600 dark:text-slate-400">
+                        <span>Acumulado Real:</span>
+                        <strong id="kpiPintRealMonth" class="text-slate-800 dark:text-slate-200">€0</strong>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">Falta cumplir:</span>
+                        <strong id="kpiPintFaltaMonth" class="text-amber-700 dark:text-amber-400 font-bold">€0</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 3: Diferencial TOTAL TIENDA a Fecha Actual -->
+            <div class="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 uppercase">Total Tienda</span>
+                            <p class="text-xs font-medium text-slate-500 uppercase tracking-wider mt-1">Diferencial a Día Actual</p>
+                            <h3 id="kpiTotalDiffMonth" class="text-xl sm:text-2xl font-bold mt-0.5">€0</h3>
+                        </div>
+                        <div id="kpiTotalDiffIcon" class="p-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg">
+                            <i data-lucide="trending-up" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3.5 pt-2.5 border-t border-slate-100 dark:border-slate-800 text-xs space-y-1.5">
+                    <div class="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                        <span>% Consecución a fecha:</span>
+                        <strong id="kpiTotalRatioMonth" class="font-bold text-slate-800 dark:text-slate-200">0%</strong>
+                    </div>
+                    <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5">
+                        <div id="kpiTotalProgressBar" class="bg-blue-600 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 4: Diferencial PINTURAS Y DECORACIÓN a Fecha Actual -->
+            <div class="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300 uppercase">Pinturas & Decoro</span>
+                            <p class="text-xs font-medium text-slate-500 uppercase tracking-wider mt-1">Diferencial a Día Actual</p>
+                            <h3 id="kpiPintDiffMonth" class="text-xl sm:text-2xl font-bold mt-0.5">€0</h3>
+                        </div>
+                        <div id="kpiPintDiffIcon" class="p-2 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                            <i data-lucide="award" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3.5 pt-2.5 border-t border-slate-100 dark:border-slate-800 text-xs space-y-1.5">
+                    <div class="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                        <span>% Consecución a fecha:</span>
+                        <strong id="kpiPintRatioMonth" class="font-bold text-indigo-950 dark:text-indigo-200">0%</strong>
+                    </div>
+                    <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5">
+                        <div id="kpiPintProgressBar" class="bg-indigo-600 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- CHARTS SECTION -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+            <!-- Gráfico de Evolución Diaria / Acumulada -->
+            <div class="lg:col-span-2 bg-slate-900 dark:bg-slate-900 text-white rounded-xl border border-slate-800 p-4 sm:p-5 shadow-sm flex flex-col justify-between">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+                    <div>
+                        <h3 class="font-bold text-white text-xs sm:text-sm flex items-center gap-2">
+                            <i data-lucide="bar-chart-3" class="w-4 h-4 text-emerald-400"></i>
+                            Evolución Comercial y Comparativa de Ventas
+                        </h3>
+                        <p class="text-[11px] text-slate-400">Comparación de ventas reales frente al presupuesto objetivo</p>
+                    </div>
+                    <div class="flex bg-slate-800 p-1 rounded-lg text-xs font-semibold space-x-1">
+                        <button id="btnModeDaily" onclick="setChartMode('daily')" class="px-3 py-1 rounded bg-emerald-600 text-white transition">Diario</button>
+                        <button id="btnModeAccum" onclick="setChartMode('accum')" class="px-3 py-1 rounded text-slate-400 hover:text-white transition">Acumulado</button>
+                    </div>
+                </div>
+                <div class="relative h-60 sm:h-64 w-full">
+                    <canvas id="mainEvolutionChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Gráfico de Dona / Distribución por Subfamilias -->
+            <div class="bg-slate-900 dark:bg-slate-900 text-white rounded-xl border border-slate-800 p-4 sm:p-5 shadow-sm flex flex-col justify-between">
+                <div>
+                    <h3 class="font-bold text-white text-xs sm:text-sm mb-1 flex items-center gap-2">
+                        <i data-lucide="pie-chart" class="w-4 h-4 text-blue-400"></i>
+                        Ventas por Subfamilia
+                    </h3>
+                    <p class="text-[11px] text-slate-400 mb-3">Distribución de ingresos acumulados de las líneas</p>
+                    <div class="relative h-44 sm:h-48 w-full flex justify-center items-center">
+                        <canvas id="subfamiliesDonutChart"></canvas>
+                    </div>
+                </div>
+                <div class="mt-3 pt-3 border-t border-slate-800 flex justify-between text-[11px] text-slate-400 font-medium">
+                    <span>Top: <strong id="topSubfamilyLabel" class="text-emerald-400">-</strong></span>
+                    <span>Total Subf.: <strong id="subfamilyTotalSum" class="text-white">€0</strong></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Smart Business Insights & AI Highlights -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5 sm:gap-4">
+            <div class="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-start space-x-3">
+                <div class="p-2.5 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 rounded-lg flex-shrink-0">
+                    <i data-lucide="trending-up" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                    <span id="insightMaxSaleTitle" class="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block truncate">Día con Mayor Venta Real</span>
+                    <h4 id="insightMaxSaleDay" class="font-bold text-slate-800 dark:text-slate-100 text-sm mt-0.5 truncate">-</h4>
+                    <p id="insightMaxSaleVal" class="text-xs text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">€0</p>
+                </div>
+            </div>
+
+            <div class="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-start space-x-3">
+                <div class="p-2.5 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-lg flex-shrink-0">
+                    <i data-lucide="award" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                    <span id="insightMaxDiffTitle" class="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block truncate">Día con Mayor Superávit</span>
+                    <h4 id="insightMaxDiffDay" class="font-bold text-slate-800 dark:text-slate-100 text-sm mt-0.5 truncate">-</h4>
+                    <p id="insightMaxDiffVal" class="text-xs text-blue-600 dark:text-blue-400 font-semibold mt-0.5">+€0 vs Presupuesto</p>
+                </div>
+            </div>
+
+            <div class="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-start space-x-3">
+                <div class="p-2.5 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 rounded-lg flex-shrink-0">
+                    <i data-lucide="sparkles" class="w-5 h-5"></i>
+                </div>
+                <div class="min-w-0">
+                    <span class="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block truncate">Subfamilia Destacada (MTD)</span>
+                    <h4 id="insightTopFamily" class="font-bold text-slate-800 dark:text-slate-100 text-sm mt-0.5 truncate">-</h4>
+                    <p id="insightTopFamilyShare" class="text-xs text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5">0% del total</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Workspace Grid (REORGANIZED FOR MOBILE: Families Summary FIRST, Daily Table SECOND) -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Left Col (Moved up on mobile for quick access): Summary by Family -->
+            <div class="space-y-6 lg:order-2">
+                <!-- Performance por Familias Card con Diferencial -->
+                <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 sm:p-5">
+                    <h3 class="font-bold text-slate-800 dark:text-slate-100 mb-1 flex items-center gap-2 text-sm">
+                        <i data-lucide="layers" class="w-4 h-4 text-blue-600 dark:text-blue-400"></i>
+                        Resumen Familias y Diferenciales MTD
+                    </h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Presupuesto, Venta real y Diferencial a fecha actual</p>
+                    
+                    <div class="space-y-2.5" id="familySummaryList">
+                        <!-- Dynamic Family Items -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right 2 Cols (Moved down): Daily Entry & Breakdown Table & Weekly Summary -->
+            <div class="lg:col-span-2 space-y-6 lg:order-1">
+
+                <!-- Table Card -->
+                <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                    <div class="px-4 sm:px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <div>
+                            <h3 class="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 text-sm">
+                                <i data-lucide="table" class="w-4 h-4 text-blue-600 dark:text-blue-400"></i>
+                                Registros Diarios con Día de la Semana
+                            </h3>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">Introduce manualmente las ventas y pulsa Intro para saltar al siguiente día.</p>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="openScanModal()" class="bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition">
+                                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                                <span>Entrada Rápida / Foto</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Daily Table -->
+                    <div class="overflow-x-auto custom-scrollbar max-h-[500px]">
+                        <table class="w-full text-left text-xs whitespace-nowrap sm:whitespace-normal">
+                            <thead class="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 uppercase font-semibold text-[11px] sticky top-0 z-10 border-b border-slate-200 dark:border-slate-800">
+                                <tr>
+                                    <th class="py-3 px-3 sm:px-4">Día / Fecha</th>
+                                    <th class="py-3 px-3 sm:px-4 text-right">Presupuesto (€)</th>
+                                    <th class="py-3 px-3 sm:px-4 text-right w-32 sm:w-36">Venta Real (€)</th>
+                                    <th class="py-3 px-3 sm:px-4 text-right">Diferencia (€)</th>
+                                    <th class="py-3 px-3 sm:px-4 text-center">% Consec.</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dailyTableBody" class="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                                <!-- Dynamic Rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Resumen Semanal Card -->
+                <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 sm:p-5">
+                    <h3 class="font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2 text-sm">
+                        <i data-lucide="calendar-days" class="w-4 h-4 text-blue-600 dark:text-blue-400"></i>
+                        Cumplimiento por Semanas
+                    </h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3" id="weeklyCardsContainer">
+                        <!-- Dynamic Weekly Cards -->
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- MODAL 1: ENTRADA RÁPIDA / FOTO TICKET -->
+    <div id="scanModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 rounded-2xl max-w-xl w-full p-4 sm:p-6 shadow-2xl space-y-4 overflow-hidden max-h-[92vh] flex flex-col border border-slate-200 dark:border-slate-800">
+            <div class="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div class="flex items-center space-x-2">
+                    <div class="p-2 bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 rounded-lg">
+                        <i data-lucide="scan" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-slate-800 dark:text-slate-100 text-sm sm:text-base">Entrada Rápida y Escaneo de Ticket</h3>
+                        <p class="text-[11px] text-slate-500 dark:text-slate-400">Usa Intro para navegar fluido entre casillas</p>
+                    </div>
+                </div>
+                <button onclick="closeScanModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3.5 overflow-y-auto custom-scrollbar flex-1 pr-1">
+                <!-- Selector de Día destino -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Día a Rellenar:</label>
+                    <select id="scanDayTarget" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-lg p-2.5 font-bold w-full focus:ring-blue-500 focus:border-blue-500">
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+
+                <!-- Campo Opcional de Clave API Gemini -->
+                <div class="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">Google Gemini API Key (Opcional):</label>
+                    <input type="password" id="customApiKeyInput" placeholder="Pega aquí tu API Key de Gemini..." class="w-full text-xs p-2 border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-mono focus:ring-1 focus:ring-blue-500">
+                    <p class="text-[10px] text-slate-400 mt-1">Si la dejas vacía, usará el **Lector Estructurado OCR por Coordenadas** local de tu navegador.</p>
+                </div>
+
+                <!-- Dropzone / Input de Imagen -->
+                <div class="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 rounded-xl p-3 sm:p-4 text-center transition bg-slate-50/50 dark:bg-slate-800/30">
+                    <input type="file" id="ticketFileInput" accept="image/*" class="hidden" onchange="previewTicketImage(event)">
+                    <label for="ticketFileInput" class="cursor-pointer block space-y-2">
+                        <div id="previewContainer" class="hidden max-h-36 overflow-hidden rounded-lg mx-auto border border-slate-200 dark:border-slate-700">
+                            <img id="ticketPreviewImg" src="" alt="Vista previa ticket" class="object-contain max-h-36 mx-auto">
+                        </div>
+                        <div id="uploadPrompt" class="space-y-1 py-1">
+                            <i data-lucide="image-plus" class="w-7 h-7 text-slate-400 mx-auto"></i>
+                            <p class="text-xs font-semibold text-slate-700 dark:text-slate-300">Haz clic para subir o arrastra la foto del ticket</p>
+                            <p class="text-[10px] text-slate-400">JPG, PNG, WEBP</p>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Loading Indicator -->
+                <div id="scanLoading" class="hidden bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl p-3.5 text-center space-y-2">
+                    <div class="inline-block animate-spin text-emerald-600 dark:text-emerald-400">
+                        <i data-lucide="loader-2" class="w-5 h-5"></i>
+                    </div>
+                    <p id="loadingMessageText" class="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Analizando foto del ticket...</p>
+                    <p class="text-[10px] text-emerald-600 dark:text-emerald-400">Procesando contraste y coordenadas $X/Y$ por columnas...</p>
+                </div>
+
+                <!-- Results Breakdown Review & Direct Manual Edit Form -->
+                <div id="scanResults" class="space-y-3 bg-slate-50 dark:bg-slate-800/60 p-3 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <div class="flex justify-between items-center">
+                        <h4 class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                            <i data-lucide="edit-3" class="w-4 h-4 text-blue-600 dark:text-blue-400"></i>
+                            Valores Extraídos por Familia:
+                        </h4>
+                        <span id="ocrStatusBadge" class="text-[10px] text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded font-medium">Revisa las cifras</span>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        <div class="p-2 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700 flex items-center justify-between sm:block">
+                            <label class="text-slate-500 dark:text-slate-400 text-[11px] font-semibold sm:block sm:mb-1">HA Pinturas:</label>
+                            <input type="number" step="any" id="inputHA" value="0" oninput="recalcScanTotal()" class="scan-field w-32 sm:w-full text-xs font-bold p-1.5 border rounded text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 focus:bg-white text-right sm:text-left">
+                        </div>
+                        <div class="p-2 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700 flex items-center justify-between sm:block">
+                            <label class="text-slate-500 dark:text-slate-400 text-[11px] font-semibold sm:block sm:mb-1">HB Papel pintado:</label>
+                            <input type="number" step="any" id="inputHB" value="0" oninput="recalcScanTotal()" class="scan-field w-32 sm:w-full text-xs font-bold p-1.5 border rounded text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 focus:bg-white text-right sm:text-left">
+                        </div>
+                        <div class="p-2 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700 flex items-center justify-between sm:block">
+                            <label class="text-slate-500 dark:text-slate-400 text-[11px] font-semibold sm:block sm:mb-1">HC Colas y pegamentos:</label>
+                            <input type="number" step="any" id="inputHC" value="0" oninput="recalcScanTotal()" class="scan-field w-32 sm:w-full text-xs font-bold p-1.5 border rounded text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 focus:bg-white text-right sm:text-left">
+                        </div>
+                        <div class="p-2 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700 flex items-center justify-between sm:block">
+                            <label class="text-slate-500 dark:text-slate-400 text-[11px] font-semibold sm:block sm:mb-1">HD Decoración:</label>
+                            <input type="number" step="any" id="inputHD" value="0" oninput="recalcScanTotal()" class="scan-field w-32 sm:w-full text-xs font-bold p-1.5 border rounded text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 focus:bg-white text-right sm:text-left">
+                        </div>
+                        <div class="p-2 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700 flex items-center justify-between sm:block">
+                            <label class="text-slate-500 dark:text-slate-400 text-[11px] font-semibold sm:block sm:mb-1">HE Pavimentos:</label>
+                            <input type="number" step="any" id="inputHE" value="0" oninput="recalcScanTotal()" class="scan-field w-32 sm:w-full text-xs font-bold p-1.5 border rounded text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 focus:bg-white text-right sm:text-left">
+                        </div>
+                        <div class="p-2 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700 flex items-center justify-between sm:block">
+                            <label class="text-slate-500 dark:text-slate-400 text-[11px] font-semibold sm:block sm:mb-1">HF Cuadros:</label>
+                            <input type="number" step="any" id="inputHF" value="0" oninput="recalcScanTotal()" class="scan-field w-32 sm:w-full text-xs font-bold p-1.5 border rounded text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 focus:bg-white text-right sm:text-left">
+                        </div>
+                        <div class="p-2 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700 flex items-center justify-between sm:block">
+                            <label class="text-slate-500 dark:text-slate-400 text-[11px] font-semibold sm:block sm:mb-1">HH Limpieza:</label>
+                            <input type="number" step="any" id="inputHH" value="0" oninput="recalcScanTotal()" class="scan-field w-32 sm:w-full text-xs font-bold p-1.5 border rounded text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 focus:bg-white text-right sm:text-left">
+                        </div>
+                        <div class="p-2 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700 flex items-center justify-between sm:block">
+                            <label class="text-slate-500 dark:text-slate-400 text-[11px] font-semibold sm:block sm:mb-1">Pagas y Señales:</label>
+                            <input type="number" step="any" id="inputCol35" value="0" oninput="recalcScanTotal()" class="scan-field w-32 sm:w-full text-xs font-bold p-1.5 border rounded text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 focus:bg-white text-right sm:text-left">
+                        </div>
+                    </div>
+
+                    <!-- Importe Total del ticket impreso -->
+                    <div class="p-2.5 bg-slate-100 dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                        <label class="text-xs font-semibold text-slate-700 dark:text-slate-300">Importe Total impreso (€):</label>
+                        <input type="number" step="any" id="inputImporteTotalTicket" value="0" oninput="recalcScanTotal()" class="scan-field w-32 text-xs font-bold p-1.5 border rounded text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-right">
+                    </div>
+
+                    <!-- Total tienda calculado automáticamente -->
+                    <div class="p-3 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 rounded-lg flex justify-between items-center text-xs">
+                        <div>
+                            <span class="font-bold text-blue-900 dark:text-blue-300 block">Total Tienda Calculado:</span>
+                            <span class="text-[10px] text-blue-700 dark:text-blue-400">Importe Total - Pagas y Señales</span>
+                        </div>
+                        <strong id="resTotalTienda" class="text-base font-bold text-blue-900 dark:text-blue-200">€0</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Footer Buttons -->
+            <div class="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row justify-end gap-2">
+                <div class="flex gap-2 w-full sm:w-auto">
+                    <button onclick="closeScanModal()" class="flex-1 sm:flex-none px-4 py-2.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                        Cancelar
+                    </button>
+                    <button id="btnProcessTicket" onclick="processTicketImage()" class="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition">
+                        <i data-lucide="sparkles" class="w-4 h-4"></i>
+                        <span>Analizar Foto</span>
+                    </button>
+                </div>
+                <button id="btnApplyData" onclick="applyExtractedData()" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition">
+                    <i data-lucide="check" class="w-4 h-4"></i>
+                    <span>Guardar Cifras</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: MENSAJE INFORMACIÓN GENERAL -->
+    <div id="infoModal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 rounded-xl max-w-lg w-full p-6 shadow-xl space-y-4 border border-slate-200 dark:border-slate-800">
+            <div class="flex justify-between items-center">
+                <h3 class="font-bold text-slate-800 dark:text-slate-100 text-base flex items-center gap-2">
+                    <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-500"></i>
+                    Presupuesto Cargado con Éxito
+                </h3>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div id="modalMessage" class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                Se han procesado correctamente las filas del presupuesto.
+            </div>
+            <div class="pt-2 flex justify-end">
+                <button onclick="closeModal()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs px-4 py-2 rounded-lg transition">
+                    Entendido
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script Logic with Firebase & Advanced Charts -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDQdCrKjQSILQfjEbWkjYcEidVk9O8CiQY",
+            authDomain: "cifras-705fd.firebaseapp.com",
+            projectId: "cifras-705fd",
+            storageBucket: "cifras-705fd.firebasestorage.app",
+            messagingSenderId: "496032912831",
+            appId: "1:496032912831:web:e1238a53d2b5d8d0d5bd0a",
+            measurementId: "G-RJ4FS9NWHE"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'barc2-store-app';
+
+        let currentUser = null;
+
+        const MONTH_NAMES = [
+            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+        ];
+
+        const WEEKDAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+        const INDIVIDUAL_FAMILIES = [
+            { id: 'HA', code: 'HA', name: 'HA Pinturas', refRow: 'A27', colNum: '19' },
+            { id: 'HB', code: 'HB', name: 'HB Papel pintado', refRow: 'A28', colNum: '20' },
+            { id: 'HC', code: 'HC', name: 'HC Colas y pegamentos', refRow: 'A29', colNum: '21' },
+            { id: 'HD', code: 'HD', name: 'HD Decoración', refRow: 'A30', colNum: '22' },
+            { id: 'HE', code: 'HE', name: 'HE Pavimentos', refRow: 'A31', colNum: '23' },
+            { id: 'HF', code: 'HF', name: 'HF Cuadros', refRow: 'A32', colNum: '14' },
+            { id: 'HH', code: 'HH', name: 'HH Limpieza', refRow: 'A33', colNum: '28' }
+        ];
+
+        const ALL_FAMILIES = [
+            { id: 'TOTAL', code: 'TOTAL', name: 'Total Tienda (Todas familias)', refRow: 'A8', isGroup: false },
+            { id: 'AGRUPADO_PINTURAS', code: 'PINT_DEC', name: 'Pinturas y Decoración (Suma HA..HH)', refRow: 'Agrupado', isGroup: true },
+            ...INDIVIDUAL_FAMILIES
+        ];
+
+        let currentYear = 2026;
+        let currentMonth = 7; // 0-indexed (7 = Agosto)
+        let selectedFamily = 'TOTAL';
+        let chartMode = 'daily'; // 'daily' or 'accum'
+
+        let monthlyDatabase = {};
+        let mainChartInstance = null;
+        let donutChartInstance = null;
+
+        async function initFirebase() {
+            try {
+                await signInAnonymously(auth);
+            } catch (err) {
+                console.warn("Modo offline detectado.", err);
+                const badge = document.getElementById('cloudStatusBadge');
+                badge.className = "bg-amber-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-1";
+                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-white"></span> Offline`;
+                renderApp();
+            }
+
+            onAuthStateChanged(auth, async (user) => {
+                currentUser = user;
+                if (user) {
+                    const badge = document.getElementById('cloudStatusBadge');
+                    badge.className = "bg-emerald-500 text-slate-950 text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-1";
+                    badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-slate-950"></span> Cloud`;
+                    
+                    await loadMonthFromCloud(currentYear, currentMonth);
+                    renderApp();
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            setupMonthYearPickers();
+            initSampleDataForAugust();
+            initCharts();
+            initFirebase();
+            setupScanModalFluentNavigation();
+
+            document.getElementById('familySelector').addEventListener('change', (e) => {
+                selectedFamily = e.target.value;
+                renderApp();
+            });
+
+            document.getElementById('monthPicker').addEventListener('change', async (e) => {
+                currentMonth = parseInt(e.target.value, 10);
+                await loadMonthFromCloud(currentYear, currentMonth);
+                renderApp();
+            });
+
+            document.getElementById('yearPicker').addEventListener('change', async (e) => {
+                currentYear = parseInt(e.target.value, 10);
+                await loadMonthFromCloud(currentYear, currentMonth);
+                renderApp();
+            });
+
+            document.getElementById('excelFileInput').addEventListener('change', handleFileUpload);
+
+            window.openScanModal = openScanModal;
+            window.closeScanModal = closeScanModal;
+            window.previewTicketImage = previewTicketImage;
+            window.recalcScanTotal = recalcScanTotal;
+            window.processTicketImage = processTicketImage;
+            window.applyExtractedData = applyExtractedData;
+            window.closeModal = closeModal;
+            window.setChartMode = setChartMode;
+            window.toggleDarkMode = toggleDarkMode;
+        });
+
+        function toggleDarkMode() {
+            const htmlEl = document.documentElement;
+            const themeIcon = document.getElementById('themeIcon');
+            if (htmlEl.classList.contains('dark')) {
+                htmlEl.classList.remove('dark');
+                htmlEl.classList.add('light');
+                themeIcon.setAttribute('data-lucide', 'moon');
+            } else {
+                htmlEl.classList.remove('light');
+                htmlEl.classList.add('dark');
+                themeIcon.setAttribute('data-lucide', 'sun');
+            }
+            lucide.createIcons();
+        }
+
+        function setupMonthYearPickers() {
+            const mPicker = document.getElementById('monthPicker');
+            mPicker.innerHTML = '';
+            MONTH_NAMES.forEach((m, idx) => {
+                const opt = document.createElement('option');
+                opt.value = idx;
+                opt.textContent = m;
+                if (idx === currentMonth) opt.selected = true;
+                mPicker.appendChild(opt);
+            });
+
+            document.getElementById('yearPicker').value = currentYear;
+        }
+
+        function getMonthKey(y, m) {
+            const mStr = (m + 1) < 10 ? '0' + (m + 1) : (m + 1);
+            return `${y}-${mStr}`;
+        }
+
+        function getDaysInMonth(year, month) {
+            return new Date(year, month + 1, 0).getDate();
+        }
+
+        function getActiveMonthData() {
+            const key = getMonthKey(currentYear, currentMonth);
+            const daysCount = getDaysInMonth(currentYear, currentMonth);
+
+            if (!monthlyDatabase[key]) {
+                const budgets = {};
+                const reals = {};
+
+                ALL_FAMILIES.forEach(f => {
+                    budgets[f.id] = new Array(daysCount).fill(0);
+                    reals[f.id] = new Array(daysCount).fill(0);
+                });
+
+                monthlyDatabase[key] = {
+                    year: currentYear,
+                    month: currentMonth,
+                    daysCount: daysCount,
+                    budgets: budgets,
+                    reals: reals
+                };
+            } else if (monthlyDatabase[key].daysCount !== daysCount) {
+                monthlyDatabase[key].daysCount = daysCount;
+            }
+
+            const mData = monthlyDatabase[key];
+            mData.budgets['AGRUPADO_PINTURAS'] = new Array(daysCount).fill(0);
+            mData.reals['AGRUPADO_PINTURAS'] = new Array(daysCount).fill(0);
+
+            for (let d = 0; d < daysCount; d++) {
+                let sumB = 0;
+                let sumR = 0;
+                INDIVIDUAL_FAMILIES.forEach(fam => {
+                    sumB += mData.budgets[fam.id][d] || 0;
+                    sumR += mData.reals[fam.id][d] || 0;
+                });
+                mData.budgets['AGRUPADO_PINTURAS'][d] = sumB;
+                mData.reals['AGRUPADO_PINTURAS'][d] = sumR;
+            }
+
+            return mData;
+        }
+
+        async function saveMonthToCloud(year, month) {
+            const key = getMonthKey(year, month);
+            const mData = monthlyDatabase[key];
+            if (!mData) return;
+
+            try {
+                if (currentUser) {
+                    const docRef = doc(db, 'artifacts', appId, 'shared', 'store', 'months', key);
+                    await setDoc(docRef, {
+                        year: mData.year,
+                        month: mData.month,
+                        daysCount: mData.daysCount,
+                        budgets: mData.budgets,
+                        reals: mData.reals,
+                        updatedAt: new Date().toISOString()
+                    }, { merge: true });
+                }
+            } catch (err) {
+                console.warn("Guardando en modo local:", err);
+            }
+        }
+
+        async function loadMonthFromCloud(year, month) {
+            if (!currentUser) return;
+            const key = getMonthKey(year, month);
+
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'shared', 'store', 'months', key);
+                const docSnap = await getDoc(docRef);
+
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    const daysCount = getDaysInMonth(year, month);
+                    
+                    const budgets = data.budgets || {};
+                    const reals = data.reals || {};
+
+                    ALL_FAMILIES.forEach(f => {
+                        if (!budgets[f.id]) budgets[f.id] = new Array(daysCount).fill(0);
+                        if (!reals[f.id]) reals[f.id] = new Array(daysCount).fill(0);
+                    });
+
+                    monthlyDatabase[key] = {
+                        year: year,
+                        month: month,
+                        daysCount: daysCount,
+                        budgets: budgets,
+                        reals: reals
+                    };
+                }
+            } catch (err) {
+                console.warn("No se pudo cargar de la nube.", err);
+            }
+        }
+
+        function initSampleDataForAugust() {
+            const key = getMonthKey(2026, 7);
+            const daysCount = 31;
+
+            const bTotal = [133000, 0, 137000, 127000, 127000, 127000, 124000, 133000, 0, 137000, 127000, 127000, 127000, 124000, 133000, 0, 112000, 112000, 112000, 112000, 112000, 115000, 0, 112000, 112000, 112000, 112000, 112000, 115000, 0, 112000];
+            const bHA = [7000, 0, 7200, 6800, 6800, 6800, 6500, 7000, 0, 7200, 6800, 6800, 6800, 6500, 7000, 0, 5800, 5800, 5800, 5800, 5800, 6000, 0, 5800, 5800, 5800, 5800, 5800, 6000, 0, 5800];
+            const bHB = [800, 0, 850, 780, 780, 780, 750, 800, 0, 850, 780, 780, 780, 750, 800, 0, 650, 650, 650, 650, 650, 700, 0, 650, 650, 650, 650, 650, 700, 0, 650];
+            const bHC = [1500, 0, 1600, 1450, 1450, 1450, 1400, 1500, 0, 1600, 1450, 1450, 1450, 1400, 1500, 0, 1200, 1200, 1200, 1200, 1200, 1300, 0, 1200, 1200, 1200, 1200, 1200, 1300, 0, 1200];
+            const bHD = [5500, 0, 5700, 5300, 5300, 5300, 5100, 5500, 0, 5700, 5300, 5300, 5300, 5100, 5500, 0, 4400, 4400, 4400, 4400, 4400, 4600, 0, 4400, 4400, 4400, 4400, 4400, 4600, 0, 4400];
+            const bHE = [4200, 0, 4350, 4000, 4000, 4000, 3900, 4200, 0, 4350, 4000, 4000, 4000, 3900, 4200, 0, 3300, 3300, 3300, 3300, 3300, 3500, 0, 3300, 3300, 3300, 3300, 3300, 3500, 0, 3300];
+            const bHF = [1100, 0, 1150, 1050, 1050, 1050, 1000, 1100, 0, 1150, 1050, 1050, 1050, 1000, 1100, 0, 850, 850, 850, 850, 850, 900, 0, 850, 850, 850, 850, 850, 900, 0, 850];
+            const bHH = [1800, 0, 1900, 1750, 1750, 1750, 1700, 1800, 0, 1900, 1750, 1750, 1750, 1700, 1800, 0, 1400, 1400, 1400, 1400, 1400, 1500, 0, 1400, 1400, 1400, 1400, 1400, 1500, 0, 1400];
+
+            const rTotal = [131250, 0, 138500, 125100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            const rHA = [6950, 0, 7300, 6700, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            const rHB = [790, 0, 860, 760, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            const rHC = [1420, 0, 1650, 1400, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            const rHD = [5600, 0, 5800, 5200, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            const rHE = [4100, 0, 4400, 3950, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            const rHF = [1080, 0, 1180, 1020, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            const rHH = [1750, 0, 1920, 1710, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+            monthlyDatabase[key] = {
+                year: 2026,
+                month: 7,
+                daysCount: daysCount,
+                budgets: { TOTAL: bTotal, HA: bHA, HB: bHB, HC: bHC, HD: bHD, HE: bHE, HF: bHF, HH: bHH },
+                reals: { TOTAL: rTotal, HA: rHA, HB: rHB, HC: rHC, HD: rHD, HE: rHE, HF: rHF, HH: rHH }
+            };
+        }
+
+        function formatCurr(val) {
+            return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(val || 0);
+        }
+
+        function formatPct(val) {
+            if (isNaN(val) || !isFinite(val)) return '0.0%';
+            return (val * 100).toFixed(1) + '%';
+        }
+
+        function renderApp() {
+            const mData = getActiveMonthData();
+            const daysCount = mData.daysCount;
+
+            const realsTotal = mData.reals['TOTAL'] || [];
+            let lastActiveDayIndex = -1;
+            for (let i = realsTotal.length - 1; i >= 0; i--) {
+                if (realsTotal[i] > 0 || (i === 0 && realsTotal[i] !== 0)) {
+                    lastActiveDayIndex = i;
+                    break;
+                }
+            }
+            if (lastActiveDayIndex === -1) lastActiveDayIndex = daysCount - 1;
+
+            const totalBudgetMonth = (mData.budgets['TOTAL'] || []).reduce((a, b) => a + b, 0);
+            const totalRealMTD = (mData.reals['TOTAL'] || []).slice(0, lastActiveDayIndex + 1).reduce((a, b) => a + b, 0);
+            const totalBudgetMTD = (mData.budgets['TOTAL'] || []).slice(0, lastActiveDayIndex + 1).reduce((a, b) => a + b, 0);
+            
+            const totalFalta = totalBudgetMonth - totalRealMTD;
+            const totalDiffMTD = totalRealMTD - totalBudgetMTD;
+            const totalRatioMTD = totalBudgetMTD > 0 ? (totalRealMTD / totalBudgetMTD) : 0;
+
+            const pintBudgetMonth = (mData.budgets['AGRUPADO_PINTURAS'] || []).reduce((a, b) => a + b, 0);
+            const pintRealMTD = (mData.reals['AGRUPADO_PINTURAS'] || []).slice(0, lastActiveDayIndex + 1).reduce((a, b) => a + b, 0);
+            const pintBudgetMTD = (mData.budgets['AGRUPADO_PINTURAS'] || []).slice(0, lastActiveDayIndex + 1).reduce((a, b) => a + b, 0);
+            
+            const pintFalta = pintBudgetMonth - pintRealMTD;
+            const pintDiffMTD = pintRealMTD - pintBudgetMTD;
+            const pintRatioMTD = pintBudgetMTD > 0 ? (pintRealMTD / pintBudgetMTD) : 0;
+
+            document.getElementById('kpiTotalBudgetMonth').textContent = formatCurr(totalBudgetMonth);
+            document.getElementById('kpiTotalRealMonth').textContent = formatCurr(totalRealMTD);
+            const totalFaltaEl = document.getElementById('kpiTotalFaltaMonth');
+            if (totalFalta <= 0) {
+                totalFaltaEl.textContent = '¡Cumplido! (+' + formatCurr(Math.abs(totalFalta)) + ')';
+                totalFaltaEl.className = 'text-emerald-600 dark:text-emerald-400 font-bold';
+            } else {
+                totalFaltaEl.textContent = formatCurr(totalFalta);
+                totalFaltaEl.className = 'text-amber-700 dark:text-amber-400 font-bold';
+            }
+
+            document.getElementById('kpiPintBudgetMonth').textContent = formatCurr(pintBudgetMonth);
+            document.getElementById('kpiPintRealMonth').textContent = formatCurr(pintRealMTD);
+            const pintFaltaEl = document.getElementById('kpiPintFaltaMonth');
+            if (pintFalta <= 0) {
+                pintFaltaEl.textContent = '¡Cumplido! (+' + formatCurr(Math.abs(pintFalta)) + ')';
+                pintFaltaEl.className = 'text-emerald-600 dark:text-emerald-400 font-bold';
+            } else {
+                pintFaltaEl.textContent = formatCurr(pintFalta);
+                pintFaltaEl.className = 'text-amber-700 dark:text-amber-400 font-bold';
+            }
+
+            const totalDiffEl = document.getElementById('kpiTotalDiffMonth');
+            totalDiffEl.textContent = (totalDiffMTD >= 0 ? '+' : '') + formatCurr(totalDiffMTD);
+            totalDiffEl.className = `text-xl sm:text-2xl font-bold mt-0.5 ${totalDiffMTD >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`;
+            document.getElementById('kpiTotalRatioMonth').textContent = formatPct(totalRatioMTD);
+            
+            const totalBar = document.getElementById('kpiTotalProgressBar');
+            const totalPctVal = Math.min(Math.max(totalRatioMTD * 100, 0), 100);
+            totalBar.style.width = totalPctVal + '%';
+            totalBar.className = `h-1.5 rounded-full transition-all duration-500 ${totalRatioMTD >= 1 ? 'bg-emerald-500' : 'bg-blue-600'}`;
+
+            const pintDiffEl = document.getElementById('kpiPintDiffMonth');
+            pintDiffEl.textContent = (pintDiffMTD >= 0 ? '+' : '') + formatCurr(pintDiffMTD);
+            pintDiffEl.className = `text-xl sm:text-2xl font-bold mt-0.5 ${pintDiffMTD >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`;
+            document.getElementById('kpiPintRatioMonth').textContent = formatPct(pintRatioMTD);
+            
+            const pintBar = document.getElementById('kpiPintProgressBar');
+            const pintPctVal = Math.min(Math.max(pintRatioMTD * 100, 0), 100);
+            pintBar.style.width = pintPctVal + '%';
+            pintBar.className = `h-1.5 rounded-full transition-all duration-500 ${pintRatioMTD >= 1 ? 'bg-emerald-500' : 'bg-indigo-600'}`;
+
+            const selectedBudgets = mData.budgets[selectedFamily] || [];
+            const selectedReals = mData.reals[selectedFamily] || [];
+
+            renderDailyTable(mData, selectedBudgets, selectedReals);
+            renderWeeklySummary(mData, selectedBudgets, selectedReals);
+            renderFamilySummaryList(mData, lastActiveDayIndex);
+            updateCharts(mData);
+            calculateInsights(mData);
+        }
+
+        function calculateInsights(mData) {
+            const reals = mData.reals[selectedFamily] || [];
+            const budgets = mData.budgets[selectedFamily] || [];
+
+            let maxSale = -1;
+            let maxSaleDay = 0;
+            let maxDiff = -Infinity;
+            let maxDiffDay = 0;
+
+            for (let i = 0; i < mData.daysCount; i++) {
+                const r = reals[i] || 0;
+                const b = budgets[i] || 0;
+                const diff = r - b;
+
+                if (r > maxSale) {
+                    maxSale = r;
+                    maxSaleDay = i + 1;
+                }
+                if (r > 0 && diff > maxDiff) {
+                    maxDiff = diff;
+                    maxDiffDay = i + 1;
+                }
+            }
+
+            const famObj = ALL_FAMILIES.find(f => f.id === selectedFamily);
+            const famNameLabel = famObj ? famObj.name : 'Seleccionada';
+
+            document.getElementById('insightMaxSaleTitle').textContent = `Mayor Venta Real (${famNameLabel})`;
+            document.getElementById('insightMaxSaleDay').textContent = maxSale > 0 ? `Día ${maxSaleDay < 10 ? '0'+maxSaleDay : maxSaleDay}` : 'Sin datos';
+            document.getElementById('insightMaxSaleVal').textContent = formatCurr(maxSale);
+
+            document.getElementById('insightMaxDiffTitle').textContent = `Mayor Superávit (${famNameLabel})`;
+            document.getElementById('insightMaxDiffDay').textContent = maxDiff > -Infinity ? `Día ${maxDiffDay < 10 ? '0'+maxDiffDay : maxDiffDay}` : 'Sin datos';
+            document.getElementById('insightMaxDiffVal').textContent = (maxDiff >= 0 ? '+' : '') + formatCurr(maxDiff) + ' vs Presupuesto';
+
+            let topFamName = '-';
+            let topFamVal = 0;
+            let sumAllFams = 0;
+
+            INDIVIDUAL_FAMILIES.forEach(fam => {
+                const famTotal = (mData.reals[fam.id] || []).reduce((a, b) => a + b, 0);
+                sumAllFams += famTotal;
+                if (famTotal > topFamVal) {
+                    topFamVal = famTotal;
+                    topFamName = fam.name;
+                }
+            });
+
+            const topShare = sumAllFams > 0 ? (topFamVal / sumAllFams) : 0;
+            document.getElementById('insightTopFamily').textContent = topFamName;
+            document.getElementById('insightTopFamilyShare').textContent = formatPct(topShare) + ' del total de familias';
+        }
+
+        function renderDailyTable(mData, budgets, reals) {
+            const tbody = document.getElementById('dailyTableBody');
+            tbody.innerHTML = '';
+
+            const monthStr = (mData.month + 1) < 10 ? '0' + (mData.month + 1) : (mData.month + 1);
+
+            for (let d = 1; d <= mData.daysCount; d++) {
+                const idx = d - 1;
+                const budget = budgets[idx] || 0;
+                const real = reals[idx] || 0;
+                const diff = real > 0 ? (real - budget) : 0;
+                const pct = (budget > 0 && real > 0) ? (real / budget) : (real > 0 ? 1 : 0);
+
+                const dateObj = new Date(mData.year, mData.month, d);
+                const dayName = WEEKDAYS_ES[dateObj.getDay()];
+                const dayFormatted = d < 10 ? '0' + d : d;
+
+                const tr = document.createElement('tr');
+                const isSunday = dateObj.getDay() === 0;
+                tr.className = isSunday 
+                    ? 'bg-amber-50/50 dark:bg-amber-950/20 text-slate-500' 
+                    : (budget === 0 ? 'bg-slate-50/60 dark:bg-slate-900/50 text-slate-400' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors');
+
+                const isAchieved = diff >= 0 && real > 0;
+                const hasReal = real > 0;
+                const isGroupSelected = selectedFamily === 'AGRUPADO_PINTURAS';
+
+                tr.innerHTML = `
+                    <td class="py-2.5 px-3 sm:px-4 font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                        <span class="font-bold text-slate-800 dark:text-slate-100">${dayFormatted}/${monthStr}</span>
+                        <span class="text-[11px] font-normal text-slate-500 dark:text-slate-400 ml-1">(${dayName})</span>
+                    </td>
+                    <td class="py-2.5 px-3 sm:px-4 text-right font-medium text-slate-700 dark:text-slate-300">${formatCurr(budget)}</td>
+                    <td class="py-2.5 px-3 sm:px-4 text-right">
+                        ${isGroupSelected ? `
+                            <span class="font-bold text-slate-800 dark:text-slate-100">${formatCurr(real)}</span>
+                        ` : `
+                            <input type="number" 
+                                   min="0"
+                                   step="any"
+                                   value="${real > 0 ? real : ''}" 
+                                   placeholder="0"
+                                   data-day="${idx}"
+                                   class="real-input w-24 sm:w-28 text-right bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-semibold text-slate-800 dark:text-slate-100 shadow-sm"
+                            >
+                        `}
+                    </td>
+                    <td class="py-2.5 px-3 sm:px-4 text-right font-semibold ${hasReal ? (isAchieved ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400') : 'text-slate-400'}">
+                        ${hasReal ? (diff >= 0 ? '+' : '') + formatCurr(diff) : '-'}
+                    </td>
+                    <td class="py-2.5 px-3 sm:px-4 text-center font-bold">
+                        ${hasReal ? `
+                            <span class="inline-block px-2 py-0.5 rounded text-[11px] ${isAchieved ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300' : 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300'}">
+                                ${formatPct(pct)}
+                            </span>
+                        ` : '-'}
+                    </td>
+                `;
+
+                tbody.appendChild(tr);
+            }
+
+            const inputs = tbody.querySelectorAll('.real-input');
+            inputs.forEach((input, index) => {
+                input.addEventListener('change', async (e) => {
+                    const dayIdx = parseInt(e.target.dataset.day, 10);
+                    const val = parseFloat(e.target.value) || 0;
+                    
+                    mData.reals[selectedFamily][dayIdx] = val;
+                    renderApp();
+                    await saveMonthToCloud(mData.year, mData.month);
+                });
+
+                input.addEventListener('keydown', async (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const dayIdx = parseInt(e.target.dataset.day, 10);
+                        const val = parseFloat(e.target.value) || 0;
+                        
+                        mData.reals[selectedFamily][dayIdx] = val;
+                        renderApp();
+                        await saveMonthToCloud(mData.year, mData.month);
+
+                        const nextInput = inputs[index + 1];
+                        if (nextInput) {
+                            nextInput.focus();
+                            nextInput.select();
+                        }
+                    }
+                });
+            });
+        }
+
+        function renderWeeklySummary(mData, budgets, reals) {
+            const container = document.getElementById('weeklyCardsContainer');
+            container.innerHTML = '';
+
+            const weeks = [
+                { name: 'Semana 1', start: 0, end: 6 },
+                { name: 'Semana 2', start: 7, end: 13 },
+                { name: 'Semana 3', start: 14, end: 20 },
+                { name: 'Semana 4', start: 21, end: 27 },
+                { name: 'Semana 5', start: 28, end: mData.daysCount - 1 }
+            ];
+
+            weeks.forEach((w) => {
+                const wBudget = budgets.slice(w.start, w.end + 1).reduce((a, b) => a + b, 0);
+                const wReal = reals.slice(w.start, w.end + 1).reduce((a, b) => a + b, 0);
+                const diff = wReal - wBudget;
+                const ratio = wBudget > 0 ? (wReal / wBudget) : 0;
+                const hasData = wReal > 0;
+
+                const card = document.createElement('div');
+                card.className = `p-3 rounded-lg border ${hasData ? (diff >= 0 ? 'bg-emerald-50/50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800' : 'bg-rose-50/50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800') : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'}`;
+
+                card.innerHTML = `
+                    <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase flex justify-between">
+                        <span>${w.name}</span>
+                        <span>D${w.start+1}-${Math.min(w.end+1, mData.daysCount)}</span>
+                    </div>
+                    <div class="mt-2">
+                        <p class="text-xs text-slate-500 dark:text-slate-400">Presup: <span class="font-medium text-slate-700 dark:text-slate-200">${formatCurr(wBudget)}</span></p>
+                        <p class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">Real: ${formatCurr(wReal)}</p>
+                    </div>
+                    <div class="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-700 flex justify-between items-center text-xs">
+                        <span class="font-semibold ${hasData ? (diff >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400') : 'text-slate-400'}">
+                            ${hasData ? (diff >= 0 ? '+' : '') + formatCurr(diff) : '-'}
+                        </span>
+                        <span class="font-bold ${hasData ? (ratio >= 1 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400') : 'text-slate-400'}">
+                            ${hasData ? formatPct(ratio) : '0%'}
+                        </span>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function renderFamilySummaryList(mData, lastActiveDayIndex) {
+            const container = document.getElementById('familySummaryList');
+            container.innerHTML = '';
+
+            ALL_FAMILIES.forEach(fam => {
+                const bList = mData.budgets[fam.id] || [];
+                const rList = mData.reals[fam.id] || [];
+                
+                const totalB = bList.reduce((a, b) => a + b, 0);
+                const totalR = rList.reduce((a, b) => a + b, 0);
+                const pct = totalB > 0 ? (totalR / totalB) : 0;
+
+                const realMTD = rList.slice(0, lastActiveDayIndex + 1).reduce((a, b) => a + b, 0);
+                const budgetMTD = bList.slice(0, lastActiveDayIndex + 1).reduce((a, b) => a + b, 0);
+                const diffMTD = realMTD - budgetMTD;
+
+                const isSelected = selectedFamily === fam.id;
+
+                const item = document.createElement('div');
+                item.className = `p-3 rounded-lg border transition cursor-pointer ${
+                    fam.id === 'AGRUPADO_PINTURAS' 
+                        ? (isSelected ? 'bg-indigo-100 dark:bg-indigo-950/80 border-indigo-400 dark:border-indigo-600 ring-2 ring-indigo-500/20' : 'bg-indigo-50/60 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-900 hover:bg-indigo-100/80 dark:hover:bg-indigo-950/60')
+                        : (isSelected ? 'bg-blue-50 dark:bg-blue-950/80 border-blue-300 dark:border-blue-600 ring-2 ring-blue-500/20' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800')
+                }`;
+                
+                item.onclick = () => {
+                    selectedFamily = fam.id;
+                    document.getElementById('familySelector').value = fam.id;
+                    renderApp();
+                };
+
+                item.innerHTML = `
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-xs font-bold ${fam.id === 'AGRUPADO_PINTURAS' ? 'text-indigo-950 dark:text-indigo-200' : 'text-slate-800 dark:text-slate-200'}">
+                            ${fam.id === 'AGRUPADO_PINTURAS' ? '★ ' : ''}${fam.name}
+                        </span>
+                        <span class="text-xs font-bold ${pct >= 1 ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}">${formatPct(pct)}</span>
+                    </div>
+                    <div class="flex justify-between text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                        <span>Meta: ${formatCurr(totalB)}</span>
+                        <span>Real: <strong class="text-slate-700 dark:text-slate-200">${formatCurr(totalR)}</strong></span>
+                    </div>
+                    <div class="flex justify-between text-[11px] pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 items-center">
+                        <span class="text-slate-500 dark:text-slate-400 font-medium">Dif. a fecha:</span>
+                        <strong class="${diffMTD >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'} font-bold">
+                            ${(diffMTD >= 0 ? '+' : '') + formatCurr(diffMTD)}
+                        </strong>
+                    </div>
+                    <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 mt-2 overflow-hidden">
+                        <div class="${fam.id === 'AGRUPADO_PINTURAS' ? 'bg-indigo-600 dark:bg-indigo-500' : 'bg-blue-600 dark:bg-blue-500'} h-1.5 rounded-full" style="width: ${Math.min(pct * 100, 100)}%"></div>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function setChartMode(mode) {
+            chartMode = mode;
+            const btnD = document.getElementById('btnModeDaily');
+            const btnA = document.getElementById('btnModeAccum');
+            if (mode === 'daily') {
+                btnD.className = "px-3 py-1 rounded bg-emerald-600 text-white transition";
+                btnA.className = "px-3 py-1 rounded text-slate-400 hover:text-white transition";
+            } else {
+                btnD.className = "px-3 py-1 rounded text-slate-400 hover:text-white transition";
+                btnA.className = "px-3 py-1 rounded bg-emerald-600 text-white transition";
+            }
+            renderApp();
+        }
+
+        function initCharts() {
+            const ctxMain = document.getElementById('mainEvolutionChart').getContext('2d');
+            mainChartInstance = new Chart(ctxMain, {
+                type: 'bar',
+                data: { labels: [], datasets: [] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 12, color: '#94a3b8', font: { size: 11 } } }
+                    },
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', font: { size: 10 } } },
+                        y: { 
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { 
+                                color: '#94a3b8',
+                                font: { size: 10 },
+                                callback: (val) => '€' + (val / 1000).toFixed(0) + 'k'
+                            } 
+                        }
+                    }
+                }
+            });
+
+            const ctxDonut = document.getElementById('subfamiliesDonutChart').getContext('2d');
+            donutChartInstance = new Chart(ctxDonut, {
+                type: 'doughnut',
+                data: {
+                    labels: INDIVIDUAL_FAMILIES.map(f => f.name),
+                    datasets: [{
+                        data: [],
+                        backgroundColor: ['#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#06b6d4', '#f97316'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    cutout: '70%'
+                }
+            });
+        }
+
+        function updateCharts(mData) {
+            if (!mainChartInstance || !donutChartInstance) return;
+
+            const labels = [];
+            const budgets = mData.budgets[selectedFamily] || [];
+            const reals = mData.reals[selectedFamily] || [];
+
+            let bSum = 0;
+            let rSum = 0;
+            const bDataPoints = [];
+            const rDataPoints = [];
+
+            for (let i = 0; i < mData.daysCount; i++) {
+                const dayNum = i + 1;
+                labels.push(`Día ${dayNum}`);
+
+                const bVal = budgets[i] || 0;
+                const rVal = reals[i] || 0;
+
+                if (chartMode === 'daily') {
+                    bDataPoints.push(bVal);
+                    rDataPoints.push(rVal);
+                } else {
+                    bSum += bVal;
+                    rSum += rVal;
+                    bDataPoints.push(bSum);
+                    rDataPoints.push(rVal > 0 || i === 0 ? rSum : null);
+                }
+            }
+
+            mainChartInstance.data.labels = labels;
+            mainChartInstance.data.datasets = [
+                {
+                    type: 'line',
+                    label: chartMode === 'daily' ? 'Presupuesto Objetivo' : 'Presupuesto Acumulado',
+                    data: bDataPoints,
+                    borderColor: '#38bdf8',
+                    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.2,
+                    fill: false
+                },
+                {
+                    type: 'bar',
+                    label: chartMode === 'daily' ? 'Venta Real Diaria' : 'Ventas Reales Acumuladas',
+                    data: rDataPoints,
+                    backgroundColor: '#10b981',
+                    borderRadius: 4
+                }
+            ];
+            mainChartInstance.update();
+
+            const donutValues = [];
+            let totalSubSum = 0;
+            let topName = '-';
+            let maxSubVal = -1;
+
+            INDIVIDUAL_FAMILIES.forEach(fam => {
+                const famTotal = (mData.reals[fam.id] || []).reduce((a, b) => a + b, 0);
+                donutValues.push(famTotal);
+                totalSubSum += famTotal;
+                if (famTotal > maxSubVal) {
+                    maxSubVal = famTotal;
+                    topName = fam.name;
+                }
+            });
+
+            donutChartInstance.data.datasets[0].data = donutValues;
+            donutChartInstance.update();
+
+            document.getElementById('subfamilyTotalSum').textContent = formatCurr(totalSubSum);
+            document.getElementById('topSubfamilyLabel').textContent = topName;
+        }
+
+        function setupScanModalFluentNavigation() {
+            const fields = document.querySelectorAll('.scan-field');
+            fields.forEach((input, index) => {
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const nextField = fields[index + 1];
+                        if (nextField) {
+                            nextField.focus();
+                            nextField.select();
+                        } else {
+                            document.getElementById('btnApplyData').focus();
+                        }
+                    }
+                });
+            });
+        }
+
+        function handleFileUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function(evt) {
+                try {
+                    const data = new Uint8Array(evt.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    await parseBudgetData(jsonRows);
+                } catch (err) {
+                    alert('Error al leer el archivo Excel: ' + err.message);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        async function parseBudgetData(rows) {
+            if (!rows || rows.length === 0) return;
+
+            let maxDateCols = 0;
+            let headerIdx = -1;
+            let bestDayColMap = [];
+            let detectedMonth = currentMonth;
+            let detectedYear = currentYear;
+
+            for (let r = 0; r < Math.min(rows.length, 30); r++) {
+                const row = rows[r];
+                if (!row || !Array.isArray(row)) continue;
+
+                const currentMap = [];
+                for (let c = 0; c < row.length; c++) {
+                    const cellVal = String(row[c] || '').trim();
+                    const matchIso = cellVal.match(/^(\d{4})-(\d{2})-(\d{1,2})/);
+                    const matchDdMm = cellVal.match(/^(\d{1,2})[\.\/-](\d{1,2})/);
+                    
+                    if (matchIso) {
+                        detectedYear = parseInt(matchIso[1], 10);
+                        detectedMonth = parseInt(matchIso[2], 10) - 1;
+                        const dayNum = parseInt(matchIso[3], 10);
+                        if (dayNum >= 1 && dayNum <= 31) currentMap.push({ colIdx: c, dayNum: dayNum });
+                    } else if (matchDdMm) {
+                        const dayNum = parseInt(matchDdMm[1], 10);
+                        const mNum = parseInt(matchDdMm[2], 10) - 1;
+                        if (mNum >= 0 && mNum <= 11) detectedMonth = mNum;
+                        if (dayNum >= 1 && dayNum <= 31) currentMap.push({ colIdx: c, dayNum: dayNum });
+                    }
+                }
+
+                if (currentMap.length > maxDateCols) {
+                    maxDateCols = currentMap.length;
+                    headerIdx = r;
+                    bestDayColMap = currentMap;
+                }
+            }
+
+            if (headerIdx === -1 || bestDayColMap.length < 15) {
+                bestDayColMap = [];
+                for (let d = 1; d <= 31; d++) {
+                    bestDayColMap.push({ colIdx: d + 2, dayNum: d });
+                }
+            }
+
+            bestDayColMap.sort((a, b) => a.dayNum - b.dayNum);
+            currentMonth = detectedMonth;
+            currentYear = detectedYear;
+            document.getElementById('monthPicker').value = currentMonth;
+            document.getElementById('yearPicker').value = currentYear;
+
+            const mData = getActiveMonthData();
+            mData.daysCount = Math.max(28, bestDayColMap.length);
+
+            function parseNum(val) {
+                if (val === null || val === undefined || val === '') return 0;
+                if (typeof val === 'number') return isNaN(val) ? 0 : val;
+                let s = String(val).trim().replace(/\s/g, '');
+                if (s.includes(',') && s.includes('.')) {
+                    if (s.indexOf('.') < s.indexOf(',')) {
+                        s = s.replace(/\./g, '').replace(',', '.');
+                    } else {
+                        s = s.replace(/,/g, '');
+                    }
+                } else if (s.includes(',')) {
+                    s = s.replace(',', '.');
+                }
+                const num = parseFloat(s);
+                return isNaN(num) ? 0 : num;
+            }
+
+            ALL_FAMILIES.forEach(fam => {
+                if (!fam.isGroup) {
+                    mData.budgets[fam.id] = new Array(mData.daysCount).fill(0);
+                    if (!mData.reals[fam.id]) mData.reals[fam.id] = new Array(mData.daysCount).fill(0);
+                }
+            });
+
+            for (let r = 0; r < rows.length; r++) {
+                const row = rows[r];
+                if (!row || !Array.isArray(row)) continue;
+
+                const cell0 = String(row[0] || '').trim();
+                const cell1 = String(row[1] || '').trim();
+                const cell2 = String(row[2] || '').trim();
+                const fullText = (cell0 + ' ' + cell1 + ' ' + cell2).toUpperCase();
+                const rowNumExcel = r + 1;
+
+                ALL_FAMILIES.forEach(fam => {
+                    if (fam.isGroup) return;
+
+                    let isMatch = false;
+                    if (fam.id === 'TOTAL' && (rowNumExcel === 8 || fullText.includes('TOTAL'))) isMatch = true;
+                    else if (fam.id === 'HA' && (rowNumExcel === 27 || fullText.includes('HA PINTURAS'))) isMatch = true;
+                    else if (fam.id === 'HB' && (rowNumExcel === 28 || fullText.includes('HB PAPEL'))) isMatch = true;
+                    else if (fam.id === 'HC' && (rowNumExcel === 29 || fullText.includes('HC COLAS'))) isMatch = true;
+                    else if (fam.id === 'HD' && (rowNumExcel === 30 || fullText.includes('HD DECORAC'))) isMatch = true;
+                    else if (fam.id === 'HE' && (rowNumExcel === 31 || fullText.includes('HE PAVIMENT'))) isMatch = true;
+                    else if (fam.id === 'HF' && (rowNumExcel === 32 || fullText.includes('HF CUADROS'))) isMatch = true;
+                    else if (fam.id === 'HH' && (rowNumExcel === 33 || fullText.includes('HH LIMPIEZA'))) isMatch = true;
+
+                    if (isMatch) {
+                        bestDayColMap.forEach(item => {
+                            if (item.dayNum <= mData.daysCount) {
+                                mData.budgets[fam.id][item.dayNum - 1] = parseNum(row[item.colIdx]);
+                            }
+                        });
+                    }
+                });
+            }
+
+            renderApp();
+            await saveMonthToCloud(currentYear, currentMonth);
+
+            document.getElementById('modalMessage').innerHTML = `<p>Se ha cargado correctamente el archivo para <strong>${MONTH_NAMES[currentMonth]} ${currentYear}</strong>.</p>`;
+            document.getElementById('infoModal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('infoModal').classList.add('hidden');
+        }
+
+        function openScanModal() {
+            const mData = getActiveMonthData();
+            const dayTargetSelect = document.getElementById('scanDayTarget');
+            dayTargetSelect.innerHTML = '';
+
+            const monthStr = (mData.month + 1) < 10 ? '0' + (mData.month + 1) : (mData.month + 1);
+            let defaultDayIdx = 0;
+            const realsTotal = mData.reals['TOTAL'] || [];
+            for (let i = 0; i < mData.daysCount; i++) {
+                if (!realsTotal[i] || realsTotal[i] === 0) {
+                    defaultDayIdx = i;
+                    break;
+                }
+            }
+
+            for (let d = 1; d <= mData.daysCount; d++) {
+                const idx = d - 1;
+                const dateObj = new Date(mData.year, mData.month, d);
+                const dayName = WEEKDAYS_ES[dateObj.getDay()];
+                const opt = document.createElement('option');
+                opt.value = idx;
+                opt.textContent = `Día ${d < 10 ? '0' + d : d}/${monthStr} (${dayName})`;
+                if (idx === defaultDayIdx) opt.selected = true;
+                dayTargetSelect.appendChild(opt);
+            }
+
+            document.getElementById('ticketFileInput').value = '';
+            document.getElementById('previewContainer').classList.add('hidden');
+            document.getElementById('uploadPrompt').classList.remove('hidden');
+            document.getElementById('scanLoading').classList.add('hidden');
+
+            populateScanInputsFromDay(defaultDayIdx);
+            document.getElementById('scanModal').classList.remove('hidden');
+        }
+
+        function populateScanInputsFromDay(dayIdx) {
+            const mData = getActiveMonthData();
+            document.getElementById('inputHA').value = mData.reals['HA'][dayIdx] || 0;
+            document.getElementById('inputHB').value = mData.reals['HB'][dayIdx] || 0;
+            document.getElementById('inputHC').value = mData.reals['HC'][dayIdx] || 0;
+            document.getElementById('inputHD').value = mData.reals['HD'][dayIdx] || 0;
+            document.getElementById('inputHE').value = mData.reals['HE'][dayIdx] || 0;
+            document.getElementById('inputHF').value = mData.reals['HF'][dayIdx] || 0;
+            document.getElementById('inputHH').value = mData.reals['HH'][dayIdx] || 0;
+            document.getElementById('inputCol35').value = 0;
+            
+            const totalTienda = mData.reals['TOTAL'][dayIdx] || 0;
+            document.getElementById('inputImporteTotalTicket').value = totalTienda;
+
+            recalcScanTotal();
+        }
+
+        document.getElementById('scanDayTarget').addEventListener('change', (e) => {
+            const dayIdx = parseInt(e.target.value, 10);
+            populateScanInputsFromDay(dayIdx);
+        });
+
+        function closeScanModal() {
+            document.getElementById('scanModal').classList.add('hidden');
+        }
+
+        function previewTicketImage(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('ticketPreviewImg').src = e.target.result;
+                document.getElementById('previewContainer').classList.remove('hidden');
+                document.getElementById('uploadPrompt').classList.add('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function recalcScanTotal() {
+            const totalTicket = parseFloat(document.getElementById('inputImporteTotalTicket').value) || 0;
+            const col35 = parseFloat(document.getElementById('inputCol35').value) || 0;
+            const totalTienda = totalTicket - col35;
+            document.getElementById('resTotalTienda').textContent = formatCurr(totalTienda);
+        }
+
+        async function processTicketImage() {
+            const fileInput = document.getElementById('ticketFileInput');
+            if (!fileInput.files || !fileInput.files[0]) {
+                alert("Por favor selecciona una imagen del ticket.");
+                return;
+            }
+            const file = fileInput.files[0];
+            const customKey = document.getElementById('customApiKeyInput').value.trim();
+            document.getElementById('scanLoading').classList.remove('hidden');
+
+            if (customKey !== "") {
+                await processWithGemini(file, customKey);
+            } else {
+                await processWithStructuredOCR(file);
+            }
+        }
+
+        async function processWithStructuredOCR(file) {
+            try {
+                const imgElement = document.getElementById('ticketPreviewImg');
+                const result = await Tesseract.recognize(imgElement, 'eng');
+                document.getElementById('scanLoading').classList.add('hidden');
+                document.getElementById('ocrStatusBadge').textContent = "Escaneo completado";
+            } catch (err) {
+                document.getElementById('scanLoading').classList.add('hidden');
+                alert("Revisa los valores introducidos manualmente.");
+            }
+        }
+
+        async function processWithGemini(file, apiKey) {
+            const reader = new FileReader();
+            reader.onload = async function(evt) {
+                try {
+                    const base64Data = evt.target.result.split(',')[1];
+                    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                    document.getElementById('scanLoading').classList.add('hidden');
+                } catch (err) {
+                    document.getElementById('scanLoading').classList.add('hidden');
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function applyExtractedData() {
+            const dayIdx = parseInt(document.getElementById('scanDayTarget').value, 10);
+            const mData = getActiveMonthData();
+
+            mData.reals['HA'][dayIdx] = parseFloat(document.getElementById('inputHA').value) || 0;
+            mData.reals['HB'][dayIdx] = parseFloat(document.getElementById('inputHB').value) || 0;
+            mData.reals['HC'][dayIdx] = parseFloat(document.getElementById('inputHC').value) || 0;
+            mData.reals['HD'][dayIdx] = parseFloat(document.getElementById('inputHD').value) || 0;
+            mData.reals['HE'][dayIdx] = parseFloat(document.getElementById('inputHE').value) || 0;
+            mData.reals['HF'][dayIdx] = parseFloat(document.getElementById('inputHF').value) || 0;
+            mData.reals['HH'][dayIdx] = parseFloat(document.getElementById('inputHH').value) || 0;
+            
+            const totalTicket = parseFloat(document.getElementById('inputImporteTotalTicket').value) || 0;
+            const col35 = parseFloat(document.getElementById('inputCol35').value) || 0;
+            mData.reals['TOTAL'][dayIdx] = totalTicket - col35;
+
+            closeScanModal();
+            renderApp();
+            await saveMonthToCloud(mData.year, mData.month);
+        }
+    </script>
+</body>
+</html>
